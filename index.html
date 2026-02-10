@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Background Video -->
+    <video autoplay loop muted playsinline id="bg-video" src=""></video>
+
+    <!-- Overlay Gradient for better readability -->
+    <div class="overlay"></div>
+
+    <!-- Main Content (Clock) -->
+    <main class="main-content">
+        <div id="clock">00:00</div>
+        <div id="date">Monday, 9th February</div>
+    </main>
+
+    <!-- Sidebar Toggle Button -->
+    <button id="sidebar-toggle" aria-label="Toggle Settings">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+            <path fill="currentColor" d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" />
+        </svg>
+    </button>
+
+    <!-- Settings Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>Settings</h2>
+            <button id="sidebar-close" aria-label="Close Settings">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                    <path fill="currentColor"
+                        d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+                </svg>
+            </button>
+        </div>
+
+        <div class="sidebar-content">
+            <div class="setting-group">
+                <label class="setting-label">Video Background</label>
+                <label for="video-upload" class="select-button">
+                    <span>➕ Select Video</span>
+                </label>
+                <input type="file" id="video-upload" accept="video/mp4,video/webm" hidden>
+                <p id="status-text">Recommended format: WebM or MP4 light</p>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Background Opacity</label>
+                <input type="range" id="video-opacity" min="0" max="1" step="0.1" value="1">
+            </div>
+
+            <div class="setting-group">
+                <button id="reset-video" class="secondary-button">Reset Background</button>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <div class="footer-links">
+                <a href="https://www.linkedin.com/in/kevinhernandezp" target="_blank">LinkedIn</a>
+                <a href="https://streamlabs.com/ibuggytv/tip" target="_blank" class="donate-link">Donate ❤️</a>
+            </div>
+            <p>Zen Tab Video v1.1</p>
+        </div>
+    </aside>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
