@@ -15,6 +15,10 @@
 
     <!-- Main Content (Clock) -->
     <main class="main-content">
+        <div id="search-container" class="search-container">
+            <!-- <input type="text" id="search-input" placeholder="Search Google..." autocomplete="off">-->
+        </div>
+        <div id="greeting" class="greeting">Good Morning</div>
         <div id="clock">00:00</div>
         <div id="date">Monday, 9th February</div>
     </main>
@@ -48,13 +52,68 @@
                 <p id="status-text">Recommended format: WebM or MP4 light</p>
             </div>
 
+            <div class="setting-group" id="recent-videos-group" style="display: none;">
+                <label class="setting-label">Recent Videos</label>
+                <div id="recent-videos-list" class="recent-videos-list">
+                    <!-- Recent videos will be injected here -->
+                </div>
+            </div>
+
             <div class="setting-group">
                 <label class="setting-label">Background Opacity</label>
                 <input type="range" id="video-opacity" min="0" max="1" step="0.1" value="1">
             </div>
 
             <div class="setting-group">
-                <button id="reset-video" class="secondary-button">Reset Background</button>
+                <label class="setting-label">Audio Volume</label>
+                <input type="range" id="video-volume" min="0" max="1" step="0.1" value="0">
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Playback Speed</label>
+                <div class="speed-controls">
+                    <button class="speed-btn" data-speed="0.5">0.5x</button>
+                    <button class="speed-btn active" data-speed="1.0">1x</button>
+                    <button class="speed-btn" data-speed="1.5">1.5x</button>
+                    <button class="speed-btn" data-speed="2.0">2x</button>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Clock Settings</label>
+                <div class="toggle-group" style="margin-bottom: 1rem;">
+                    <span>Show Clock</span>
+                    <label class="switch">
+                        <input type="checkbox" id="clock-visibility" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="toggle-group">
+                    <span>24h Format</span>
+                    <label class="switch">
+                        <input type="checkbox" id="clock-format" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="setting-group" id="clock-position-group">
+                <label class="setting-label">Clock Position</label>
+                <div class="position-grid">
+                    <button class="pos-btn" data-pos="top-left" title="Top Left"></button>
+                    <button class="pos-btn" data-pos="top-center" title="Top Center"></button>
+                    <button class="pos-btn" data-pos="top-right" title="Top Right"></button>
+                    <button class="pos-btn" data-pos="middle-left" title="Middle Left"></button>
+                    <button class="pos-btn active" data-pos="center" title="Center"></button>
+                    <button class="pos-btn" data-pos="middle-right" title="Middle Right"></button>
+                    <button class="pos-btn" data-pos="bottom-left" title="Bottom Left"></button>
+                    <button class="pos-btn" data-pos="bottom-center" title="Bottom Center"></button>
+                    <button class="pos-btn" data-pos="bottom-right" title="Bottom Right"></button>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <button id="reset-video" class="secondary-button">Reset All Settings</button>
             </div>
         </div>
 

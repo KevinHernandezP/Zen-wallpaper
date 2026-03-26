@@ -57,8 +57,127 @@ html {
     justify-content: center;
     align-items: center;
     text-align: center;
+    padding: 4rem;
     pointer-events: none;
-    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Position Classes */
+.main-content.pos-top-left {
+    justify-content: flex-start;
+    align-items: flex-start;
+    text-align: left;
+}
+
+.main-content.pos-top-center {
+    justify-content: flex-start;
+    align-items: center;
+    text-align: center;
+}
+
+.main-content.pos-top-right {
+    justify-content: flex-start;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.main-content.pos-middle-left {
+    justify-content: center;
+    align-items: flex-start;
+    text-align: left;
+}
+
+.main-content.pos-center {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.main-content.pos-middle-right {
+    justify-content: center;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.main-content.pos-bottom-left {
+    justify-content: flex-end;
+    align-items: flex-start;
+    text-align: left;
+}
+
+.main-content.pos-bottom-center {
+    justify-content: flex-end;
+    align-items: center;
+    text-align: center;
+}
+
+.main-content.pos-bottom-right {
+    justify-content: flex-end;
+    align-items: flex-end;
+    text-align: right;
+}
+
+.main-content.clock-hidden #clock,
+.main-content.clock-hidden #date,
+.main-content.clock-hidden .greeting {
+    display: none;
+}
+
+.main-content>* {
+    pointer-events: auto;
+}
+
+.search-container {
+    margin-bottom: 2rem;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.5s ease 0.3s;
+    width: 100%;
+    max-width: 500px;
+}
+
+.sidebar.active~.main-content .search-container,
+body:hover .search-container {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+#search-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--glass-border);
+    padding: 1rem 1.5rem;
+    border-radius: 30px;
+    color: white;
+    font-size: 1.1rem;
+    outline: none;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+#search-input:focus {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: var(--accent);
+    box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
+    width: 110%;
+}
+
+#search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.greeting {
+    font-size: 1.5rem;
+    font-weight: 300;
+    margin-bottom: -1rem;
+    opacity: 0.9;
+    letter-spacing: 2px;
+}
+
+.idle-fade {
+    opacity: 0;
+    transition: opacity 1s ease-out;
 }
 
 #clock {
@@ -66,6 +185,11 @@ html {
     font-weight: 700;
     text-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
     margin-bottom: 0.5rem;
+    transition: transform 0.3s ease;
+}
+
+.main-content:hover #clock {
+    transform: scale(1.02);
 }
 
 #date {
@@ -245,6 +369,168 @@ input[type="range"]::-webkit-slider-thumb {
     cursor: pointer;
     margin-top: -6px;
     box-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+}
+
+/* Recent Videos List */
+.recent-videos-list {
+    display: flex;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--accent) transparent;
+}
+
+.recent-videos-list::-webkit-scrollbar {
+    height: 4px;
+}
+
+.recent-videos-list::-webkit-scrollbar-thumb {
+    background: var(--accent);
+    border-radius: 10px;
+}
+
+.recent-video-item {
+    flex: 0 0 80px;
+    height: 80px;
+    border-radius: 12px;
+    background: var(--glass-bg);
+    border: 2px solid transparent;
+    cursor: pointer;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.recent-video-item:hover {
+    border-color: var(--accent);
+    transform: scale(1.05);
+}
+
+.recent-video-item.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 15px rgba(0, 210, 255, 0.5);
+}
+
+.recent-video-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Speed Controls */
+.speed-controls {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.speed-btn {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: white;
+    padding: 8px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.speed-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.speed-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    font-weight: bold;
+}
+
+/* Custom Toggle Switch */
+.toggle-group {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--glass-border);
+    transition: .4s;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+}
+
+input:checked+.slider {
+    background-color: var(--accent);
+}
+
+input:checked+.slider:before {
+    transform: translateX(20px);
+}
+
+.slider.round {
+    border-radius: 24px;
+}
+
+.slider.round:before {
+    border-radius: 50%;
+}
+
+/* Position Grid UI */
+.position-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    width: 120px;
+    margin: 0 auto;
+}
+
+.pos-btn {
+    aspect-ratio: 1;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pos-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.pos-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
 }
 
 .sidebar-footer {
