@@ -1,14 +1,16 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
+    <title>Zen Tab Video</title>
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <!-- Background Video -->
+    <!-- Background Media -->
     <video autoplay loop muted playsinline id="bg-video" src=""></video>
+    <img id="bg-image" src="" alt="Background Image" style="display: none;">
 
     <!-- Overlay Gradient for better readability -->
     <div class="overlay"></div>
@@ -44,24 +46,36 @@
 
         <div class="sidebar-content">
             <div class="setting-group">
-                <label class="setting-label">Video Background</label>
+                <label class="setting-label">Background Media</label>
                 <label for="video-upload" class="select-button">
-                    <span>➕ Select Video</span>
+                    <span>➕ Select Media</span>
                 </label>
-                <input type="file" id="video-upload" accept="video/mp4,video/webm" hidden>
-                <p id="status-text">Recommended format: WebM or MP4 light</p>
+                <input type="file" id="video-upload" accept="video/mp4,video/webm,image/jpeg,image/png,image/webp,image/gif" hidden>
+                <p id="status-text">Recommended format: WebM, MP4, WebP, JPG, or PNG</p>
             </div>
 
             <div class="setting-group" id="recent-videos-group" style="display: none;">
-                <label class="setting-label">Recent Videos</label>
+                <label class="setting-label">Recent Media</label>
                 <div id="recent-videos-list" class="recent-videos-list">
                     <!-- Recent videos will be injected here -->
                 </div>
             </div>
 
             <div class="setting-group">
-                <label class="setting-label">Background Opacity</label>
-                <input type="range" id="video-opacity" min="0" max="1" step="0.1" value="1">
+                <label class="setting-label">Media Scaling</label>
+                <div class="toggle-group">
+                    <span>Fill Screen (Crop)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="video-fit" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <p id="fit-help-text" style="font-size: 0.75rem; margin-top: 0.5rem;">Turn off to show full media (Contain)</p>
+            </div>
+
+            <div class="setting-group" id="media-position-group">
+                <label class="setting-label">Vertical Alignment</label>
+                <input type="range" id="media-position" min="0" max="100" step="1" value="50">
             </div>
 
             <div class="setting-group">

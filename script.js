@@ -1,11 +1,13 @@
 const fileInput = document.getElementById('video-upload');
 const videoPlayer = document.getElementById('bg-video');
+const imagePlayer = document.getElementById('bg-image');
+const mediaPositionSlider = document.getElementById('media-position');
 const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 const sidebarClose = document.getElementById('sidebar-close');
 const clockElement = document.getElementById('clock');
 const dateElement = document.getElementById('date');
-const opacitySlider = document.getElementById('video-opacity');
+const videoFitToggle = document.getElementById('video-fit');
 const volumeSlider = document.getElementById('video-volume');
 const speedBtns = document.querySelectorAll('.speed-btn');
 const clockFormatToggle = document.getElementById('clock-format');
@@ -19,16 +21,19 @@ const recentVideosGroup = document.getElementById('recent-videos-group');
 const recentVideosList = document.getElementById('recent-videos-list');
 
 let currentBlobUrl = null;
-let previewUrls = [];
+let currentLoadedVideoId = null; // Track which video is currently loaded
 let use24hFormat = true;
 let idleTimer;
+let idleThrottleTimer = null;
 let clockInterval = null;
+let lastClockMinute = -1;
 const IDLE_TIME = 10000; // 10 seconds
 
 // --- IndexedDB Setup ---
 const DB_NAME = 'ZenTabDB';
-const DB_VERSION = 2;
+const DB_VERSION = 3; // Bumped from 2 → 3 for thumbnails store
 const STORE_NAME = 'videos';
+const THUMB_STORE = 'thumbnails';
 
 function openDB() {
     return new Promise((resolve, reject) => {
@@ -38,46 +43,103 @@ function openDB() {
             if (!db.objectStoreNames.contains(STORE_NAME)) {
                 db.createObjectStore(STORE_NAME);
             }
+            if (!db.objectStoreNames.contains(THUMB_STORE)) {
+                db.createObjectStore(THUMB_STORE);
+            }
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });
 }
 
-async function saveVideoToLibrary(blob, id = null) {
+// Helper: run a transaction and close db when done
+async function withDB(storeNames, mode, callback) {
     const db = await openDB();
-    const vidId = id || `vid_${Date.now()}`;
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    store.put(blob, vidId);
+    try {
+        const tx = db.transaction(storeNames, mode);
+        const result = await callback(tx, db);
+        return result;
+    } finally {
+        db.close();
+    }
+}
 
-    return new Promise((resolve, reject) => {
-        tx.oncomplete = () => resolve(vidId);
-        tx.onerror = () => reject(tx.error);
+async function saveVideoToLibrary(blob, id = null) {
+    const vidId = id || `vid_${Date.now()}`;
+
+    // Save video blob first
+    await withDB(STORE_NAME, 'readwrite', (tx) => {
+        tx.objectStore(STORE_NAME).put(blob, vidId);
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
     });
+
+    // Generate and cache thumbnail in a separate transaction
+    // (generateThumbnail is async and would cause the previous tx to auto-commit)
+    try {
+        const thumbnail = await generateThumbnail(blob);
+        if (thumbnail) {
+            await withDB(THUMB_STORE, 'readwrite', (tx) => {
+                tx.objectStore(THUMB_STORE).put(thumbnail, vidId);
+                return new Promise((resolve, reject) => {
+                    tx.oncomplete = () => resolve();
+                    tx.onerror = () => reject(tx.error);
+                });
+            });
+        }
+    } catch (e) {
+        // Thumbnail generation failed — not critical, video still saved
+        console.warn('Thumbnail generation failed:', e);
+    }
+
+    return vidId;
 }
 
 async function getVideoFromLibrary(id) {
-    const db = await openDB();
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.get(id);
-    return new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+    return withDB(STORE_NAME, 'readonly', (tx) => {
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.get(id);
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+async function getThumbnailFromCache(id) {
+    return withDB(THUMB_STORE, 'readonly', (tx) => {
+        const store = tx.objectStore(THUMB_STORE);
+        const request = store.get(id);
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
     });
 }
 
 async function getAllVideoIds() {
-    const db = await openDB();
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const store = tx.objectStore(STORE_NAME);
-    const request = store.getAllKeys();
-    return new Promise((resolve, reject) => {
-        request.onsuccess = () => {
-            resolve(request.result.filter(key => key !== 'background'));
-        };
-        request.onerror = () => reject(request.error);
+    return withDB(STORE_NAME, 'readonly', (tx) => {
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.getAllKeys();
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => {
+                resolve(request.result.filter(key => key !== 'background'));
+            };
+            request.onerror = () => reject(request.error);
+        });
+    });
+}
+
+async function deleteVideoFromLibrary(id) {
+    return withDB([STORE_NAME, THUMB_STORE], 'readwrite', (tx) => {
+        tx.objectStore(STORE_NAME).delete(id);
+        tx.objectStore(THUMB_STORE).delete(id);
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
     });
 }
 
@@ -106,13 +168,20 @@ if (mainContent) {
     });
 }
 
-// 2. Real-time Clock & Greeting
+// 2. Real-time Clock & Greeting — Using requestAnimationFrame
 function updateClock() {
     if (!clockElement || !dateElement || !greetingElement) return;
 
     const now = new Date();
     let hours = now.getHours();
-    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const minutes = now.getMinutes();
+
+    // Only update DOM when minute changes (reduces unnecessary repaints)
+    const currentMinute = hours * 60 + minutes;
+    if (currentMinute === lastClockMinute) return;
+    lastClockMinute = currentMinute;
+
+    const minuteStr = String(minutes).padStart(2, '0');
 
     // Update Greeting
     let greeting = "Good Night";
@@ -125,9 +194,9 @@ function updateClock() {
         const ampm = hours >= 12 ? 'PM' : 'AM';
         hours = hours % 12;
         hours = hours ? hours : 12;
-        clockElement.textContent = `${hours}:${minutes} ${ampm}`;
+        clockElement.textContent = `${hours}:${minuteStr} ${ampm}`;
     } else {
-        clockElement.textContent = `${String(hours).padStart(2, '0')}:${minutes}`;
+        clockElement.textContent = `${String(hours).padStart(2, '0')}:${minuteStr}`;
     }
 
     const options = { weekday: 'long', day: 'numeric', month: 'long' };
@@ -136,6 +205,7 @@ function updateClock() {
 
 function startClock() {
     if (clockInterval) clearInterval(clockInterval);
+    lastClockMinute = -1; // Force update on start
     updateClock();
     clockInterval = setInterval(updateClock, 1000);
 }
@@ -149,13 +219,21 @@ function stopClock() {
 
 startClock();
 
-// 3. Idle Detection
+// 3. Idle Detection — Throttled mousemove
 function resetIdleTimer() {
     if (!mainContent) return;
     mainContent.classList.remove('idle-fade');
     if (sidebarToggle) sidebarToggle.style.opacity = '1';
     clearTimeout(idleTimer);
     idleTimer = setTimeout(goIdle, IDLE_TIME);
+}
+
+function throttledResetIdle() {
+    if (idleThrottleTimer) return;
+    idleThrottleTimer = setTimeout(() => {
+        idleThrottleTimer = null;
+        resetIdleTimer();
+    }, 200); // Throttle to once per 200ms
 }
 
 function goIdle() {
@@ -165,103 +243,278 @@ function goIdle() {
     }
 }
 
-document.addEventListener('mousemove', resetIdleTimer);
+document.addEventListener('mousemove', throttledResetIdle);
 document.addEventListener('keypress', resetIdleTimer);
 resetIdleTimer();
 
 // 4. Video Loading & Persistence
 function loadVideo(blob, id = null) {
-    if (!blob || !videoPlayer) return;
+    if (!blob || !videoPlayer || !imagePlayer) return;
 
     if (currentBlobUrl) {
         URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
     }
 
     currentBlobUrl = URL.createObjectURL(blob);
-    videoPlayer.src = currentBlobUrl;
-    videoPlayer.load();
 
-    const playPromise = videoPlayer.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(error => {
-            console.warn("Autoplay block or error:", error);
-            if (statusText) statusText.textContent = "Click to activate video";
-        });
+    if (blob.type && blob.type.startsWith('image/')) {
+        videoPlayer.style.display = 'none';
+        videoPlayer.pause();
+        videoPlayer.removeAttribute('src');
+        videoPlayer.load();
+
+        imagePlayer.style.display = 'block';
+        imagePlayer.src = currentBlobUrl;
+    } else {
+        imagePlayer.style.display = 'none';
+        imagePlayer.removeAttribute('src');
+
+        videoPlayer.style.display = 'block';
+        videoPlayer.src = currentBlobUrl;
+        videoPlayer.load();
+
+        const playPromise = videoPlayer.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.warn("Autoplay block or error:", error);
+                if (statusText) statusText.textContent = "Click to activate media";
+            });
+        }
     }
 
     if (id) {
+        currentLoadedVideoId = id;
         chrome.storage.local.set({ activeVideoId: id });
         updateRecentVideosUI();
     }
 }
 
-// 4.1 Visibility & Focus Optimization
-function handleVisibilityChange() {
-    if (document.hidden || !document.hasFocus()) {
-        if (videoPlayer && !videoPlayer.paused) {
+// 4.1 Visibility & Focus Optimization — Pausing/Unloading to save RAM and CPU
+let wasPlayingBeforeHide = false;
+let unloadTimeout = null;
+let isCurrentlyActive = !document.hidden && document.hasFocus();
+const UNLOAD_DELAY = 10000; // 10 seconds before full unload memory
+
+function checkActiveState() {
+    // Active if tab is visible AND window is focused
+    const nowActive = !document.hidden && document.hasFocus();
+
+    // Skip if state hasn't actually changed (debounce)
+    if (nowActive === isCurrentlyActive) return;
+    isCurrentlyActive = nowActive;
+
+    if (!nowActive) {
+        // Tab became background or unfocused — pause immediately, schedule full unload
+        if (videoPlayer) {
+            wasPlayingBeforeHide = !videoPlayer.paused;
             videoPlayer.pause();
         }
         stopClock();
+
+        // Schedule full memory release after X seconds
+        unloadTimeout = setTimeout(() => {
+            if (!isCurrentlyActive) {
+                if (videoPlayer) {
+                    videoPlayer.removeAttribute('src');
+                    videoPlayer.load(); // Release decoded frames & GPU memory
+                }
+                if (imagePlayer) {
+                    imagePlayer.removeAttribute('src');
+                }
+                if (currentBlobUrl) {
+                    URL.revokeObjectURL(currentBlobUrl);
+                    currentBlobUrl = null;
+                }
+                currentLoadedVideoId = null; // Force reload on restore
+            }
+        }, UNLOAD_DELAY);
     } else {
-        if (videoPlayer && videoPlayer.paused) {
-            videoPlayer.play().catch(() => { });
+        // Tab became active/focused — cancel pending unload, restore video
+        if (unloadTimeout) {
+            clearTimeout(unloadTimeout);
+            unloadTimeout = null;
         }
+
+        if ((videoPlayer || imagePlayer) && currentBlobUrl && currentLoadedVideoId) {
+            // Media was only paused/hidden (quick switch) — just resume
+            if (wasPlayingBeforeHide && videoPlayer.style.display !== 'none') {
+                videoPlayer.play().catch(() => { });
+            }
+        } else {
+            // Media was fully unloaded (long absence) — reload from IndexedDB
+            (async () => {
+                try {
+                    const settings = await chrome.storage.local.get(['activeVideoId']);
+                    if (settings.activeVideoId && (videoPlayer || imagePlayer)) {
+                        const blob = await getVideoFromLibrary(settings.activeVideoId);
+                        if (blob) {
+                            loadVideo(blob, settings.activeVideoId);
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error restoring media:', e);
+                }
+            })();
+        }
+
         startClock();
+        updateRecentVideosUI();
     }
 }
 
-document.addEventListener('visibilitychange', handleVisibilityChange);
-window.addEventListener('focus', handleVisibilityChange);
-window.addEventListener('blur', handleVisibilityChange);
+// Track both visibility and window focus/blur
+document.addEventListener('visibilitychange', checkActiveState);
+window.addEventListener('focus', checkActiveState);
+window.addEventListener('blur', checkActiveState);
+
+// Generate a small thumbnail from a media blob (returns a data URL)
+function generateThumbnail(blob) {
+    return new Promise((resolve) => {
+        if (blob.type && blob.type.startsWith('image/')) {
+            const img = new Image();
+            const tempUrl = URL.createObjectURL(blob);
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = 80;
+                canvas.height = 80;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, 80, 80);
+                const dataUrl = canvas.toDataURL('image/webp', 0.5);
+                URL.revokeObjectURL(tempUrl);
+                resolve(dataUrl);
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(tempUrl);
+                resolve(null);
+            };
+            img.src = tempUrl;
+            return;
+        }
+
+        const tempVideo = document.createElement('video');
+        tempVideo.preload = 'metadata';
+        tempVideo.muted = true;
+        const tempUrl = URL.createObjectURL(blob);
+        tempVideo.src = tempUrl;
+
+        const cleanup = () => {
+            URL.revokeObjectURL(tempUrl);
+            tempVideo.removeAttribute('src');
+            tempVideo.load();
+        };
+
+        tempVideo.addEventListener('loadeddata', () => {
+            tempVideo.currentTime = 0.5; // seek to 0.5s for a good frame
+        });
+
+        tempVideo.addEventListener('seeked', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 80;
+            canvas.height = 80;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(tempVideo, 0, 0, 80, 80);
+            const dataUrl = canvas.toDataURL('image/webp', 0.5);
+            cleanup();
+            resolve(dataUrl);
+        }, { once: true });
+
+        // Fallback if seek fails
+        tempVideo.addEventListener('error', () => {
+            cleanup();
+            resolve(null);
+        });
+    });
+}
+
+// Track last rendered state to avoid unnecessary DOM rebuilds
+let lastRenderedVideoIds = null;
+let lastRenderedActiveId = null;
 
 async function updateRecentVideosUI() {
     if (!recentVideosGroup || !recentVideosList) return;
 
     const ids = await getAllVideoIds();
     const activeId = (await chrome.storage.local.get(['activeVideoId'])).activeVideoId;
+    const recentIds = ids.slice(-5).reverse();
 
-    if (ids.length > 0) {
+    // Skip rebuild if nothing changed
+    const idsKey = recentIds.join(',');
+    if (idsKey === lastRenderedVideoIds && activeId === lastRenderedActiveId) return;
+    lastRenderedVideoIds = idsKey;
+    lastRenderedActiveId = activeId;
+
+    if (recentIds.length > 0) {
         recentVideosGroup.style.display = 'block';
-
-        // Revoke old preview URLs
-        previewUrls.forEach(url => URL.revokeObjectURL(url));
-        previewUrls = [];
-
         recentVideosList.innerHTML = '';
-
-        const recentIds = ids.slice(-5).reverse();
 
         for (const id of recentIds) {
             const item = document.createElement('div');
             item.className = `recent-video-item ${id === activeId ? 'active' : ''}`;
 
-            const blob = await getVideoFromLibrary(id);
-            if (blob) {
-                const vid = document.createElement('video');
-                // Use a thumbnail instead or load on demand to save memory
-                // For now, we set preload="metadata" to avoid downloading the whole thing
-                vid.preload = "metadata";
-                const url = URL.createObjectURL(blob);
-                previewUrls.push(url);
-                vid.src = url;
-                vid.muted = true;
-                item.appendChild(vid);
+            // Load cached thumbnail instead of full video blob
+            let thumbnail = await getThumbnailFromCache(id);
 
-                item.addEventListener('mouseenter', () => {
-                    vid.play().catch(() => { });
-                });
-                item.addEventListener('mouseleave', () => {
-                    vid.pause();
-                    vid.currentTime = 0;
-                });
-
-                item.addEventListener('click', async () => {
-                    const freshBlob = await getVideoFromLibrary(id);
-                    loadVideo(freshBlob, id);
-                });
-
-                recentVideosList.appendChild(item);
+            // If no cached thumbnail exists (legacy video), generate and cache it
+            if (!thumbnail) {
+                try {
+                    const blob = await getVideoFromLibrary(id);
+                    if (blob) {
+                        thumbnail = await generateThumbnail(blob);
+                        if (thumbnail) {
+                            // Cache for future use
+                            await withDB(THUMB_STORE, 'readwrite', (tx) => {
+                                tx.objectStore(THUMB_STORE).put(thumbnail, id);
+                                return new Promise(resolve => { tx.oncomplete = resolve; });
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to generate legacy thumbnail:', e);
+                }
             }
+
+            if (thumbnail) {
+                const img = document.createElement('img');
+                img.src = thumbnail;
+                img.style.width = '100%';
+                img.style.height = '100%';
+                img.style.objectFit = 'cover';
+                item.appendChild(img);
+            }
+
+            // Delete button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-video-btn';
+            deleteBtn.innerHTML = '×';
+            deleteBtn.title = 'Remove from library';
+            deleteBtn.onclick = async (e) => {
+                e.stopPropagation();
+                if (confirm('Remove this video from your library?')) {
+                    await deleteVideoFromLibrary(id);
+                    const currentSettings = await chrome.storage.local.get(['activeVideoId']);
+                    if (currentSettings.activeVideoId === id) {
+                        chrome.storage.local.remove('activeVideoId');
+                        if (videoPlayer) {
+                            videoPlayer.removeAttribute('src');
+                            videoPlayer.load();
+                        }
+                        currentLoadedVideoId = null;
+                        if (statusText) statusText.textContent = "Video removed. Upload a new one!";
+                    }
+                    // Force rebuild
+                    lastRenderedVideoIds = null;
+                    updateRecentVideosUI();
+                }
+            };
+            item.appendChild(deleteBtn);
+
+            item.addEventListener('click', async () => {
+                const freshBlob = await getVideoFromLibrary(id);
+                loadVideo(freshBlob, id);
+            });
+
+            recentVideosList.appendChild(item);
         }
     } else {
         recentVideosGroup.style.display = 'none';
@@ -272,7 +525,7 @@ async function updateRecentVideosUI() {
 (async function init() {
     try {
         const settings = await new Promise(resolve =>
-            chrome.storage.local.get(['videoOpacity', 'videoVolume', 'videoSpeed', 'activeVideoId', 'use24hFormat', 'showClock', 'clockPos'], resolve)
+            chrome.storage.local.get(['videoFit', 'videoVolume', 'videoSpeed', 'activeVideoId', 'use24hFormat', 'showClock', 'clockPos', 'mediaPosition'], resolve)
         );
 
         let blob = null;
@@ -280,29 +533,51 @@ async function updateRecentVideosUI() {
             blob = await getVideoFromLibrary(settings.activeVideoId);
         } else {
             const db = await openDB();
-            const tx = db.transaction(STORE_NAME, 'readonly');
-            const store = tx.objectStore(STORE_NAME);
-            const request = store.get('background');
-            blob = await new Promise(resolve => {
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => resolve(null);
-            });
+            try {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.get('background');
+                blob = await new Promise(resolve => {
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => resolve(null);
+                });
+            } finally {
+                db.close();
+            }
 
             if (blob) {
                 const newId = await saveVideoToLibrary(blob);
                 chrome.storage.local.set({ activeVideoId: newId });
+                settings.activeVideoId = newId;
             }
         }
 
         if (blob) {
-            loadVideo(blob);
+            loadVideo(blob, settings.activeVideoId);
             if (statusText) statusText.textContent = "Video loaded successfully.";
         }
 
         if (videoPlayer) {
-            if (settings.videoOpacity !== undefined) {
-                videoPlayer.style.opacity = settings.videoOpacity;
-                if (opacitySlider) opacitySlider.value = settings.videoOpacity;
+            // Force brightness by ensuring opacity is 1
+            videoPlayer.style.opacity = "1";
+
+            if (settings.videoFit !== undefined) {
+                videoPlayer.classList.toggle('fit-contain', !settings.videoFit);
+                if (imagePlayer) imagePlayer.classList.toggle('fit-contain', !settings.videoFit);
+                if (videoFitToggle) videoFitToggle.checked = settings.videoFit;
+            } else {
+                // Default to Fill Screen (Crop)
+                if (videoFitToggle) videoFitToggle.checked = true;
+            }
+
+            if (settings.mediaPosition !== undefined) {
+                if (mediaPositionSlider) mediaPositionSlider.value = settings.mediaPosition;
+                videoPlayer.style.objectPosition = `center ${settings.mediaPosition}%`;
+                if (imagePlayer) imagePlayer.style.objectPosition = `center ${settings.mediaPosition}%`;
+            } else {
+                if (mediaPositionSlider) mediaPositionSlider.value = 50;
+                videoPlayer.style.objectPosition = 'center 50%';
+                if (imagePlayer) imagePlayer.style.objectPosition = 'center 50%';
             }
 
             if (settings.videoVolume !== undefined) {
@@ -366,6 +641,9 @@ if (fileInput) {
             try {
                 const id = await saveVideoToLibrary(file);
                 loadVideo(file, id);
+                // Force rebuild of recent videos
+                lastRenderedVideoIds = null;
+                updateRecentVideosUI();
                 if (statusText) statusText.textContent = "Video saved to library.";
             } catch (err) {
                 if (statusText) statusText.textContent = "Error saving video.";
@@ -376,11 +654,21 @@ if (fileInput) {
 }
 
 // 4. Controls
-if (opacitySlider && videoPlayer) {
-    opacitySlider.addEventListener('input', (e) => {
-        const opacity = e.target.value;
-        videoPlayer.style.opacity = opacity;
-        chrome.storage.local.set({ 'videoOpacity': opacity });
+if (videoFitToggle) {
+    videoFitToggle.addEventListener('change', (e) => {
+        const fillScreen = e.target.checked;
+        if (videoPlayer) videoPlayer.classList.toggle('fit-contain', !fillScreen);
+        if (imagePlayer) imagePlayer.classList.toggle('fit-contain', !fillScreen);
+        chrome.storage.local.set({ 'videoFit': fillScreen });
+    });
+}
+
+if (mediaPositionSlider) {
+    mediaPositionSlider.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (videoPlayer) videoPlayer.style.objectPosition = `center ${val}%`;
+        if (imagePlayer) imagePlayer.style.objectPosition = `center ${val}%`;
+        chrome.storage.local.set({ 'mediaPosition': val });
     });
 }
 
@@ -409,6 +697,7 @@ if (clockFormatToggle) {
     clockFormatToggle.addEventListener('change', (e) => {
         use24hFormat = e.target.checked;
         chrome.storage.local.set({ 'use24hFormat': use24hFormat });
+        lastClockMinute = -1; // Force clock redraw
         updateClock();
     });
 }
@@ -454,11 +743,16 @@ if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
         if (confirm('Are you sure you want to reset everything? This will clear your library and settings.')) {
             const db = await openDB();
-            const tx = db.transaction(STORE_NAME, 'readwrite');
-            tx.objectStore(STORE_NAME).clear();
-            await new Promise(resolve => {
-                tx.oncomplete = resolve;
-            });
+            try {
+                const storeNames = Array.from(db.objectStoreNames);
+                const tx = db.transaction(storeNames, 'readwrite');
+                storeNames.forEach(name => tx.objectStore(name).clear());
+                await new Promise(resolve => {
+                    tx.oncomplete = resolve;
+                });
+            } finally {
+                db.close();
+            }
             chrome.storage.local.clear();
             location.reload();
         }
