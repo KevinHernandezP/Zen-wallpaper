@@ -9,7 +9,7 @@
 
 <body>
     <!-- Background Media -->
-    <video autoplay loop muted playsinline id="bg-video" src=""></video>
+    <video autoplay loop muted playsinline decoding="async" id="bg-video" src=""></video>
     <img id="bg-image" src="" alt="Background Image" style="display: none;">
 
     <!-- Overlay Gradient for better readability -->
@@ -34,103 +34,128 @@
 
     <!-- Settings Sidebar -->
     <aside class="sidebar" id="sidebar">
+
+        <!-- Header -->
         <div class="sidebar-header">
-            <h2>Settings</h2>
+            <div class="sidebar-title">
+                <span class="sidebar-title-main">Zen Tab</span>
+                <span class="sidebar-title-sub">Video Extension</span>
+            </div>
             <button id="sidebar-close" aria-label="Close Settings">
-                <svg viewBox="0 0 24 24" width="24" height="24">
+                <svg viewBox="0 0 24 24" width="18" height="18">
                     <path fill="currentColor"
                         d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
                 </svg>
             </button>
         </div>
 
-        <div class="sidebar-content">
-            <div class="setting-group">
-                <label class="setting-label">Background Media</label>
-                <label for="video-upload" class="select-button">
-                    <span>➕ Select Media</span>
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="wallpaper">Wallpaper</button>
+            <button class="tab-btn" data-tab="settings">Settings</button>
+        </div>
+
+        <!-- Tab: Wallpaper -->
+        <div class="tab-panel active" id="tab-wallpaper">
+            <div class="tab-scroll">
+
+                <label for="video-upload" class="upload-btn">
+                    <svg viewBox="0 0 24 24" width="16" height="16" style="margin-right:8px;flex-shrink:0">
+                        <path fill="currentColor" d="M9,16V10H5L12,3L19,10H15V16H9M5,20V18H19V20H5Z" />
+                    </svg>
+                    Upload Wallpaper
                 </label>
-                <input type="file" id="video-upload" accept="video/mp4,video/webm,image/jpeg,image/png,image/webp,image/gif" hidden>
-                <p id="status-text">Recommended format: WebM, MP4, WebP, JPG, or PNG</p>
-            </div>
+                <input type="file" id="video-upload"
+                    accept="video/mp4,video/webm,image/jpeg,image/png,image/webp,image/gif" hidden>
+                <p id="status-text">WebM, MP4, WebP, JPG or PNG</p>
 
-            <div class="setting-group" id="recent-videos-group" style="display: none;">
-                <label class="setting-label">Recent Media</label>
-                <div id="recent-videos-list" class="recent-videos-list">
-                    <!-- Recent videos will be injected here -->
+                <div class="section-label">Your Library</div>
+
+                <div id="recent-videos-group" style="display:none;">
+                    <div id="recent-videos-list" class="recent-videos-list">
+                        <!-- injected by JS -->
+                    </div>
                 </div>
-            </div>
 
-            <div class="setting-group">
-                <label class="setting-label">Media Scaling</label>
-                <div class="toggle-group">
-                    <span>Fill Screen (Crop)</span>
-                    <label class="switch">
-                        <input type="checkbox" id="video-fit" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                <p id="fit-help-text" style="font-size: 0.75rem; margin-top: 0.5rem;">Turn off to show full media (Contain)</p>
-            </div>
-
-            <div class="setting-group" id="media-position-group">
-                <label class="setting-label">Vertical Alignment</label>
-                <input type="range" id="media-position" min="0" max="100" step="1" value="50">
-            </div>
-
-            <div class="setting-group">
-                <label class="setting-label">Audio Volume</label>
-                <input type="range" id="video-volume" min="0" max="1" step="0.1" value="0">
-            </div>
-
-            <div class="setting-group">
-                <label class="setting-label">Playback Speed</label>
-                <div class="speed-controls">
-                    <button class="speed-btn" data-speed="0.5">0.5x</button>
-                    <button class="speed-btn active" data-speed="1.0">1x</button>
-                    <button class="speed-btn" data-speed="1.5">1.5x</button>
-                    <button class="speed-btn" data-speed="2.0">2x</button>
-                </div>
-            </div>
-
-            <div class="setting-group">
-                <label class="setting-label">Clock Settings</label>
-                <div class="toggle-group" style="margin-bottom: 1rem;">
-                    <span>Show Clock</span>
-                    <label class="switch">
-                        <input type="checkbox" id="clock-visibility" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                <div class="toggle-group">
-                    <span>24h Format</span>
-                    <label class="switch">
-                        <input type="checkbox" id="clock-format" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="setting-group" id="clock-position-group">
-                <label class="setting-label">Clock Position</label>
-                <div class="position-grid">
-                    <button class="pos-btn" data-pos="top-left" title="Top Left"></button>
-                    <button class="pos-btn" data-pos="top-center" title="Top Center"></button>
-                    <button class="pos-btn" data-pos="top-right" title="Top Right"></button>
-                    <button class="pos-btn" data-pos="middle-left" title="Middle Left"></button>
-                    <button class="pos-btn active" data-pos="center" title="Center"></button>
-                    <button class="pos-btn" data-pos="middle-right" title="Middle Right"></button>
-                    <button class="pos-btn" data-pos="bottom-left" title="Bottom Left"></button>
-                    <button class="pos-btn" data-pos="bottom-center" title="Bottom Center"></button>
-                    <button class="pos-btn" data-pos="bottom-right" title="Bottom Right"></button>
-                </div>
-            </div>
-
-            <div class="setting-group">
-                <button id="reset-video" class="secondary-button">Reset All Settings</button>
             </div>
         </div>
 
+        <!-- Tab: Settings -->
+        <div class="tab-panel" id="tab-settings">
+            <div class="tab-scroll">
+
+                <div class="setting-group">
+                    <div class="setting-label">Media Scaling</div>
+                    <div class="toggle-row">
+                        <span>Fill Screen</span>
+                        <label class="switch">
+                            <input type="checkbox" id="video-fit" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="setting-group" id="media-position-group">
+                    <div class="setting-label">Vertical Position</div>
+                    <input type="range" id="media-position" min="0" max="100" step="1" value="50">
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">Volume</div>
+                    <input type="range" id="video-volume" min="0" max="1" step="0.1" value="0">
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">Playback Speed</div>
+                    <div class="speed-controls">
+                        <button class="speed-btn" data-speed="0.5">0.5×</button>
+                        <button class="speed-btn active" data-speed="1.0">1×</button>
+                        <button class="speed-btn" data-speed="1.5">1.5×</button>
+                        <button class="speed-btn" data-speed="2.0">2×</button>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <div class="setting-label">Clock</div>
+                    <div class="toggle-row" style="margin-bottom:0.75rem">
+                        <span>Show Clock</span>
+                        <label class="switch">
+                            <input type="checkbox" id="clock-visibility" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-row">
+                        <span>24h Format</span>
+                        <label class="switch">
+                            <input type="checkbox" id="clock-format" checked>
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="setting-group" id="clock-position-group">
+                    <div class="setting-label">Clock Position</div>
+                    <div class="position-grid">
+                        <button class="pos-btn" data-pos="top-left" title="Top Left"></button>
+                        <button class="pos-btn" data-pos="top-center" title="Top Center"></button>
+                        <button class="pos-btn" data-pos="top-right" title="Top Right"></button>
+                        <button class="pos-btn" data-pos="middle-left" title="Middle Left"></button>
+                        <button class="pos-btn active" data-pos="center" title="Center"></button>
+                        <button class="pos-btn" data-pos="middle-right" title="Middle Right"></button>
+                        <button class="pos-btn" data-pos="bottom-left" title="Bottom Left"></button>
+                        <button class="pos-btn" data-pos="bottom-center" title="Bottom Center"></button>
+                        <button class="pos-btn" data-pos="bottom-right" title="Bottom Right"></button>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <button id="reset-video" class="secondary-button">Reset All Settings</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Footer -->
         <div class="sidebar-footer">
             <div class="footer-links">
                 <a href="https://www.linkedin.com/in/kevinhernandezp" target="_blank">LinkedIn</a>
@@ -138,6 +163,7 @@
             </div>
             <p>Zen Tab Video v1.1</p>
         </div>
+
     </aside>
 
     <script src="script.js"></script>

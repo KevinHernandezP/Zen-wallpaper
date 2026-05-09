@@ -64,20 +64,38 @@ async function withDB(storeNames, mode, callback) {
     }
 }
 
+// --- OPFS Helpers ---
+async function getOPFSDir() {
+    return navigator.storage && navigator.storage.getDirectory ? await navigator.storage.getDirectory() : null;
+}
+
 async function saveVideoToLibrary(blob, id = null) {
     const vidId = id || `vid_${Date.now()}`;
 
-    // Save video blob first
-    await withDB(STORE_NAME, 'readwrite', (tx) => {
-        tx.objectStore(STORE_NAME).put(blob, vidId);
-        return new Promise((resolve, reject) => {
-            tx.oncomplete = () => resolve();
-            tx.onerror = () => reject(tx.error);
-        });
-    });
+    let savedToOPFS = false;
+    try {
+        const dir = await getOPFSDir();
+        if (dir) {
+            const fileHandle = await dir.getFileHandle(vidId, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            savedToOPFS = true;
+        }
+    } catch (e) {
+        console.warn('OPFS save failed, falling back to IndexedDB:', e);
+    }
 
-    // Generate and cache thumbnail in a separate transaction
-    // (generateThumbnail is async and would cause the previous tx to auto-commit)
+    if (!savedToOPFS) {
+        await withDB(STORE_NAME, 'readwrite', (tx) => {
+            tx.objectStore(STORE_NAME).put(blob, vidId);
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        });
+    }
+
     try {
         const thumbnail = await generateThumbnail(blob);
         if (thumbnail) {
@@ -90,7 +108,6 @@ async function saveVideoToLibrary(blob, id = null) {
             });
         }
     } catch (e) {
-        // Thumbnail generation failed — not critical, video still saved
         console.warn('Thumbnail generation failed:', e);
     }
 
@@ -98,7 +115,17 @@ async function saveVideoToLibrary(blob, id = null) {
 }
 
 async function getVideoFromLibrary(id) {
-    return withDB(STORE_NAME, 'readonly', (tx) => {
+    try {
+        const dir = await getOPFSDir();
+        if (dir) {
+            const fileHandle = await dir.getFileHandle(id);
+            return await fileHandle.getFile();
+        }
+    } catch (e) {
+        // Not in OPFS or OPFS unavailable
+    }
+
+    const blob = await withDB(STORE_NAME, 'readonly', (tx) => {
         const store = tx.objectStore(STORE_NAME);
         const request = store.get(id);
         return new Promise((resolve, reject) => {
@@ -106,6 +133,26 @@ async function getVideoFromLibrary(id) {
             request.onerror = () => reject(request.error);
         });
     });
+
+    if (blob) {
+        try {
+            const dir = await getOPFSDir();
+            if (dir) {
+                const fileHandle = await dir.getFileHandle(id, { create: true });
+                const writable = await fileHandle.createWritable();
+                await writable.write(blob);
+                await writable.close();
+                await withDB(STORE_NAME, 'readwrite', (tx) => {
+                    tx.objectStore(STORE_NAME).delete(id);
+                    return new Promise(resolve => { tx.oncomplete = resolve; });
+                });
+            }
+        } catch (e) {
+            console.warn('Failed to migrate video to OPFS:', e);
+        }
+    }
+
+    return blob;
 }
 
 async function getThumbnailFromCache(id) {
@@ -120,19 +167,45 @@ async function getThumbnailFromCache(id) {
 }
 
 async function getAllVideoIds() {
-    return withDB(STORE_NAME, 'readonly', (tx) => {
+    const ids = new Set();
+
+    try {
+        const dir = await getOPFSDir();
+        if (dir) {
+            for await (const name of dir.keys()) {
+                if (name !== 'background') ids.add(name);
+            }
+        }
+    } catch (e) {
+        console.warn('OPFS get keys failed:', e);
+    }
+
+    const idbKeys = await withDB(STORE_NAME, 'readonly', (tx) => {
         const store = tx.objectStore(STORE_NAME);
         const request = store.getAllKeys();
         return new Promise((resolve, reject) => {
-            request.onsuccess = () => {
-                resolve(request.result.filter(key => key !== 'background'));
-            };
+            request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
         });
     });
+
+    idbKeys.forEach(k => {
+        if (k !== 'background') ids.add(k);
+    });
+
+    return Array.from(ids).sort();
 }
 
 async function deleteVideoFromLibrary(id) {
+    try {
+        const dir = await getOPFSDir();
+        if (dir) {
+            await dir.removeEntry(id);
+        }
+    } catch (e) {
+        // Ignore if not found in OPFS
+    }
+
     return withDB([STORE_NAME, THUMB_STORE], 'readwrite', (tx) => {
         tx.objectStore(STORE_NAME).delete(id);
         tx.objectStore(THUMB_STORE).delete(id);
@@ -146,6 +219,7 @@ async function deleteVideoFromLibrary(id) {
 // --- UI Logic ---
 
 // 1. Sidebar Logic
+
 if (sidebarToggle) {
     sidebarToggle.addEventListener('click', () => {
         sidebar.classList.toggle('active');
@@ -157,6 +231,17 @@ if (sidebarClose) {
         sidebar.classList.remove('active');
     });
 }
+
+// Tab switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const target = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`tab-${target}`).classList.add('active');
+    });
+});
 
 const mainContent = document.querySelector('.main-content');
 if (mainContent) {
@@ -376,11 +461,11 @@ function generateThumbnail(blob) {
             const tempUrl = URL.createObjectURL(blob);
             img.onload = () => {
                 const canvas = document.createElement('canvas');
-                canvas.width = 80;
-                canvas.height = 80;
+                canvas.width = 160;
+                canvas.height = 90;
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, 80, 80);
-                const dataUrl = canvas.toDataURL('image/webp', 0.5);
+                ctx.drawImage(img, 0, 0, 160, 90);
+                const dataUrl = canvas.toDataURL('image/webp', 0.6);
                 URL.revokeObjectURL(tempUrl);
                 resolve(dataUrl);
             };
@@ -410,11 +495,11 @@ function generateThumbnail(blob) {
 
         tempVideo.addEventListener('seeked', () => {
             const canvas = document.createElement('canvas');
-            canvas.width = 80;
-            canvas.height = 80;
+            canvas.width = 160;
+            canvas.height = 90;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(tempVideo, 0, 0, 80, 80);
-            const dataUrl = canvas.toDataURL('image/webp', 0.5);
+            ctx.drawImage(tempVideo, 0, 0, 160, 90);
+            const dataUrl = canvas.toDataURL('image/webp', 0.6);
             cleanup();
             resolve(dataUrl);
         }, { once: true });
@@ -436,7 +521,7 @@ async function updateRecentVideosUI() {
 
     const ids = await getAllVideoIds();
     const activeId = (await chrome.storage.local.get(['activeVideoId'])).activeVideoId;
-    const recentIds = ids.slice(-5).reverse();
+    const recentIds = ids.slice().reverse();
 
     // Skip rebuild if nothing changed
     const idsKey = recentIds.join(',');
@@ -452,17 +537,15 @@ async function updateRecentVideosUI() {
             const item = document.createElement('div');
             item.className = `recent-video-item ${id === activeId ? 'active' : ''}`;
 
-            // Load cached thumbnail instead of full video blob
+            // Load cached thumbnail
             let thumbnail = await getThumbnailFromCache(id);
 
-            // If no cached thumbnail exists (legacy video), generate and cache it
             if (!thumbnail) {
                 try {
                     const blob = await getVideoFromLibrary(id);
                     if (blob) {
                         thumbnail = await generateThumbnail(blob);
                         if (thumbnail) {
-                            // Cache for future use
                             await withDB(THUMB_STORE, 'readwrite', (tx) => {
                                 tx.objectStore(THUMB_STORE).put(thumbnail, id);
                                 return new Promise(resolve => { tx.oncomplete = resolve; });
@@ -474,14 +557,26 @@ async function updateRecentVideosUI() {
                 }
             }
 
+            // Thumbnail image
             if (thumbnail) {
                 const img = document.createElement('img');
                 img.src = thumbnail;
-                img.style.width = '100%';
-                img.style.height = '100%';
-                img.style.objectFit = 'cover';
+                img.className = 'thumb';
                 item.appendChild(img);
+            } else {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'thumb';
+                item.appendChild(placeholder);
             }
+
+            // Label
+            const info = document.createElement('div');
+            info.className = 'item-info';
+            const label = document.createElement('div');
+            label.className = 'item-label';
+            label.textContent = id === activeId ? 'Active' : 'Wallpaper';
+            info.appendChild(label);
+            item.appendChild(info);
 
             // Delete button
             const deleteBtn = document.createElement('button');
@@ -490,19 +585,15 @@ async function updateRecentVideosUI() {
             deleteBtn.title = 'Remove from library';
             deleteBtn.onclick = async (e) => {
                 e.stopPropagation();
-                if (confirm('Remove this video from your library?')) {
+                if (confirm('Remove this media from your library?')) {
                     await deleteVideoFromLibrary(id);
                     const currentSettings = await chrome.storage.local.get(['activeVideoId']);
                     if (currentSettings.activeVideoId === id) {
                         chrome.storage.local.remove('activeVideoId');
-                        if (videoPlayer) {
-                            videoPlayer.removeAttribute('src');
-                            videoPlayer.load();
-                        }
+                        if (videoPlayer) { videoPlayer.removeAttribute('src'); videoPlayer.load(); }
                         currentLoadedVideoId = null;
-                        if (statusText) statusText.textContent = "Video removed. Upload a new one!";
+                        if (statusText) statusText.textContent = 'Removed. Upload a new one!';
                     }
-                    // Force rebuild
                     lastRenderedVideoIds = null;
                     updateRecentVideosUI();
                 }
@@ -640,10 +731,11 @@ if (fileInput) {
             if (statusText) statusText.textContent = "Saving video...";
             try {
                 const id = await saveVideoToLibrary(file);
-                loadVideo(file, id);
-                // Force rebuild of recent videos
+                // Reset dedup cache BEFORE loadVideo so the UI rebuild inside it runs fresh
                 lastRenderedVideoIds = null;
-                updateRecentVideosUI();
+                lastRenderedActiveId = null;
+                loadVideo(file, id);
+                // loadVideo already triggers updateRecentVideosUI — no second call needed
                 if (statusText) statusText.textContent = "Video saved to library.";
             } catch (err) {
                 if (statusText) statusText.textContent = "Error saving video.";
